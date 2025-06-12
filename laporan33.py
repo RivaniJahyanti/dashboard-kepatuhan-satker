@@ -102,7 +102,7 @@ def display_search_results(kode_input, all_data, selected_reports):
         try:
             dt = datetime.strptime(str(date_str), '%d/%m/%Y')
             return ("✅ Tepat Waktu", "normal") if dt.day <= deadline_day else ("❌ Terlambat", "inverse")
-        except (TypeError, ValueError): return "Belum Upload", "off"
+        except (TypeError, ValueError): return "-", "off"
 
     # --- PERBAIKAN DI SINI: Memberi judul untuk setiap bagian ---
     if "LK" in selected_reports:
