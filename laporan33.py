@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 # --- KONFIGURASI HALAMAN DAN JUDUL UTAMA ---
 st.set_page_config(layout="wide", page_title="Dashboard Kepatuhan Satker")
-st.title("📊 Dashboard Kepatuhan LK, LPJ, dan SHR")
+st.title("📊 Dashboard Kepatuhan LK, LAPORAN PJ, dan SHR")
 st.markdown("Dasbor terpusat untuk memonitor progres dan kinerja Satuan Kerja.")
 
 # Trik CSS untuk kustomisasi sidebar
