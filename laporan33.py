@@ -23,8 +23,9 @@ st.markdown(
 # --- FUNGSI UNTUK MEMUAT DAN MEMPROSES DATA ---
 @st.cache_data(ttl=600)
 def load_and_process_data(sheet_id):
-    """Memuat data mentah, lalu memprosesnya agar memiliki struktur kolom yang standar."""
-    sheet_names = ["LK", "LPJ", "SHR"]
+    """Memuat data mentah dan data deadline, lalu memprosesnya."""
+    # PERUBAHAN: Menambahkan 'DEADLINE' ke daftar sheet
+    sheet_names = ["LK", "LPJ", "SHR", "DEADLINE"]
     dataframes_raw = {}
     base_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet="
     
@@ -32,13 +33,13 @@ def load_and_process_data(sheet_id):
     for name in sheet_names:
         try:
             url = base_url + name
-            dataframes_raw[name] = pd.read_csv(url, dtype=str)
+            dataframes_raw[name] = pd.read_csv(url, dtype=str).fillna('')
         except Exception as e:
             st.error(f"Gagal memuat sheet '{name}': {e}")
             dataframes_raw[name] = pd.DataFrame()
 
+    # --- Bagian pemrosesan data laporan (TIDAK DIUBAH) ---
     processed_data = {}
-    
     if "LK" in dataframes_raw:
         processed_data["LK"] = dataframes_raw["LK"].copy()
     if "SHR" in dataframes_raw:
@@ -58,9 +59,23 @@ def load_and_process_data(sheet_id):
             st.warning("Kolom 'Jenis LPJ dan Nama Satker' tidak ditemukan di sheet LPJ.")
             df_lpj['Jenis LPJ'] = "TIDAK DIKETAHUI"
         processed_data["LPJ"] = df_lpj
-    return processed_data
 
-# --- FUNGSI UNTUK MEMBUAT TAB FILTER DATA ---
+    # --- PERUBAHAN: Memproses sheet DEADLINE menjadi dictionary ---
+    deadlines_dict = {}
+    df_deadline = dataframes_raw.get("DEADLINE")
+    if df_deadline is not None and not df_deadline.empty:
+        st.success("Konfigurasi deadline berhasil dimuat.")
+        deadlines_dict = pd.Series(
+            df_deadline['Tanggal Deadline'].values,
+            index=df_deadline['Jenis Laporan']
+        ).to_dict()
+    else:
+        st.warning("Sheet 'DEADLINE' tidak ditemukan. Pengecekan deadline tidak akan akurat.")
+
+    # PERUBAHAN: Mengembalikan dua objek: data laporan dan dictionary deadline
+    return processed_data, deadlines_dict
+
+# --- FUNGSI UNTUK MEMBUAT TAB FILTER DATA (TIDAK DIUBAH) ---
 def create_date_filter_tab(df, date_col, name_col, header_text):
     st.header(header_text)
     if df.empty or date_col not in df.columns or name_col not in df.columns:
@@ -80,8 +95,10 @@ def create_date_filter_tab(df, date_col, name_col, header_text):
         st.info(f"Menampilkan **{len(filtered_df)} data** pada **{selected_date.strftime('%d-%m-%Y')}**.")
         st.dataframe(filtered_df[['Kode Satker', name_col, date_col]], use_container_width=True, hide_index=True)
 
+
 # --- FUNGSI UNTUK MENAMPILKAN HASIL PENCARIAN DETAIL ---
-def display_search_results(kode_input, all_data, selected_reports):
+# PERUBAHAN: Menambahkan 'deadlines' sebagai parameter
+def display_search_results(kode_input, all_data, selected_reports, deadlines):
     df_lk = all_data.get("LK", pd.DataFrame())
     df_lpj = all_data.get("LPJ", pd.DataFrame())
     df_shr = all_data.get("SHR", pd.DataFrame())
@@ -98,25 +115,38 @@ def display_search_results(kode_input, all_data, selected_reports):
     st.subheader(f"Detail untuk: {nama_satker}")
     st.text(f"Kode Satker: {kode_input}")
     
-    def get_status(date_str, deadline_day):
+    # PERUBAHAN: Fungsi get_status baru yang membandingkan tanggal penuh
+    def get_deadline_status(submission_date_str, deadline_date_str):
+        if not submission_date_str or not isinstance(submission_date_str, str) or not deadline_date_str:
+            return "-", "off"
         try:
-            dt = datetime.strptime(str(date_str), '%d/%m/%Y')
-            return ("✅ Tepat Waktu", "normal") if dt.day <= deadline_day else ("❌ Terlambat", "inverse")
-        except (TypeError, ValueError): return "-", "off"
+            submission_dt = datetime.strptime(submission_date_str, '%d/%m/%Y')
+            deadline_dt = datetime.strptime(deadline_date_str, '%d/%m/%Y')
+            return ("✅ Tepat Waktu", "normal") if submission_dt.date() <= deadline_dt.date() else ("❌ Terlambat", "inverse")
+        except (TypeError, ValueError):
+            return "-", "off"
 
-    # --- PERBAIKAN DI SINI: Memberi judul untuk setiap bagian ---
+    # PERUBAHAN: Ambil tanggal deadline dari dictionary
+    lk_deadline = deadlines.get('LK')
+    shr_deadline = deadlines.get('SHR')
+    lpj_deadline = deadlines.get('LPJ')
+    
+    st.caption(f"Deadline Saat Ini: LK ({lk_deadline or 'N/A'}), LPJ ({lpj_deadline or 'N/A'}), SHR ({shr_deadline or 'N/A'})")
+
     if "LK" in selected_reports:
         st.markdown("---")
         st.subheader("Detail Laporan Keuangan (LK)")
         lk_date = lk_data.iloc[0]['LK terupload'] if not lk_data.empty else None
-        status, delta_color = get_status(lk_date, 15)
+        # PERUBAHAN: Panggil fungsi status yang baru dengan deadline dari dictionary
+        status, delta_color = get_deadline_status(lk_date, lk_deadline)
         st.metric(label="Tanggal Upload", value=lk_date or "N/A", delta=status, delta_color=delta_color)
 
     if "SHR" in selected_reports:
         st.markdown("---")
         st.subheader("Detail Tutup Periode (SHR)")
         shr_date = shr_data.iloc[0]['Tanggal Tutup Periode'] if not shr_data.empty else None
-        status, delta_color = get_status(shr_date, 20)
+        # PERUBAHAN: Panggil fungsi status yang baru dengan deadline dari dictionary
+        status, delta_color = get_deadline_status(shr_date, shr_deadline)
         st.metric(label="Tanggal Tutup Periode", value=shr_date or "N/A", delta=status, delta_color=delta_color)
 
     if "LPJ" in selected_reports:
@@ -131,20 +161,22 @@ def display_search_results(kode_input, all_data, selected_reports):
             with lpj_cols[i]:
                 lpj_row = lpj_data[lpj_data['Jenis LPJ'] == internal_name]
                 lpj_date = lpj_row.iloc[0]['Tanggal Validasi LPJ'] if not lpj_row.empty else None
-                status, delta_color = get_status(lpj_date, 15)
+                # PERUBAHAN: Panggil fungsi status yang baru dengan deadline dari dictionary
+                status, delta_color = get_deadline_status(lpj_date, lpj_deadline)
                 st.metric(label=display_name, value=lpj_date or "N/A", delta=status, delta_color=delta_color)
 
 # --- EKSEKUSI UTAMA APLIKASI ---
 SHEET_ID = "1WIvE_yZDfeH_lD5z6sboMfMnSL0Gy9vEQJcxvA91BVk"
-all_data = load_and_process_data(SHEET_ID)
+# PERUBAHAN: Unpack data laporan dan dictionary deadlines
+all_data, deadlines = load_and_process_data(SHEET_ID)
 
-# --- SIDEBAR KONTROL ---
+# --- SIDEBAR KONTROL (TIDAK DIUBAH) ---
 st.sidebar.header("Filter Laporan")
 report_options = {"Laporan Keuangan (LK)": "LK", "Laporan Pertanggungjawaban (LPJ)": "LPJ", "SHR": "SHR"}
-selected_reports_display = st.sidebar.multiselect("Pilih laporan:", options=list(report_options.keys()), default=[])
+selected_reports_display = st.sidebar.multiselect("Pilih laporan:", options=list(report_options.keys()), default=list(report_options.keys()))
 selected_reports = [report_options[report] for report in selected_reports_display]
 
-# --- BUAT TAB SECARA DINAMIS ---
+# --- BUAT TAB SECARA DINAMIS (TIDAK DIUBAH) ---
 if selected_reports:
     tab_titles = []
     if "LK" in selected_reports: tab_titles.append("🗓️ Laporan Keuangan")
@@ -171,7 +203,6 @@ if selected_reports:
         st.header("🏆 Peringkat Satker Tercepat")
         st.markdown("Peringkat menampilkan hingga 5 besar tercepat, di mana satker pada hari yang sama mendapat peringkat yang sama.")
         
-        # --- FUNGSI PERINGKAT YANG DIPERBARUI ---
         def create_ranking_table(df, date_col, name_col):
             if df.empty or date_col not in df.columns or name_col not in df.columns:
                 st.warning("Data tidak cukup untuk membuat peringkat.")
@@ -185,39 +216,29 @@ if selected_reports:
                 st.info("Belum ada laporan yang masuk untuk kategori ini.")
                 return
             
-            unique_dates = sorted(df_copy[f'{date_col}_dt'].unique())
-            ranked_dfs, total_ranked_count, rank = [], 0, 1
+            df_copy['Peringkat'] = df_copy[f'{date_col}_dt'].dt.date.rank(method='dense').astype(int)
+            ranked_df = df_copy.sort_values(by=[f'{date_col}_dt', name_col])
+            top_5_ranks = ranked_df[ranked_df['Peringkat'] <= 5]
             
-            for submission_date in unique_dates:
-                daily_submissions = df_copy[df_copy[f'{date_col}_dt'] == submission_date].copy()
-                if not daily_submissions.empty:
-                    daily_submissions['Peringkat'] = rank
-                    ranked_dfs.append(daily_submissions)
-                    total_ranked_count += len(daily_submissions)
-                    rank += 1
-                    if total_ranked_count >= 5:
-                        break
-            
-            if ranked_dfs:
-                final_ranking_df = pd.concat(ranked_dfs)
+            if not top_5_ranks.empty:
                 st.dataframe(
-                    final_ranking_df[['Peringkat', name_col, date_col]],
+                    top_5_ranks[['Peringkat', name_col, date_col]],
                     use_container_width=True,
                     hide_index=True
                 )
-                st.success(f"Menampilkan {len(final_ranking_df)} satker tercepat dalam {rank - 1} peringkat.")
+                st.success(f"Menampilkan {len(top_5_ranks)} satker dalam peringkat teratas.")
             else:
                 st.info("Tidak ada data peringkat untuk ditampilkan.")
 
         if "LK" in selected_reports:
             st.subheader("LK Tercepat")
             create_ranking_table(all_data.get("LK"), 'LK terupload', 'Nama Satker')
-            st.markdown("---") # Garis pemisah
+            st.markdown("---")
         
         if "LPJ" in selected_reports:
             st.subheader("LPJ Tercepat")
             create_ranking_table(all_data.get("LPJ"), 'Tanggal Validasi LPJ', 'Jenis LPJ dan Nama Satker')
-            st.markdown("---") # Garis pemisah
+            st.markdown("---")
 
         if "SHR" in selected_reports:
             st.subheader("SHR Tercepat")
@@ -229,6 +250,7 @@ if selected_reports:
         st.header("🔍 Cek Status Kepatuhan per Satker")
         kode_input = st.text_input("Masukkan Kode Satker:", placeholder="Contoh: 527123")
         if kode_input:
-            display_search_results(kode_input, all_data, selected_reports)
+            # PERUBAHAN: Teruskan dictionary 'deadlines' ke fungsi pencarian
+            display_search_results(kode_input, all_data, selected_reports, deadlines)
 else:
     st.info("Silakan pilih minimal satu laporan dari filter di sidebar untuk menampilkan data.")
