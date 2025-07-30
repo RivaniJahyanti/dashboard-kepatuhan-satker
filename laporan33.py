@@ -64,7 +64,7 @@ def load_and_process_data(sheet_id):
     deadlines_dict = {}
     df_deadline = dataframes_raw.get("DEADLINE")
     if df_deadline is not None and not df_deadline.empty:
-        st.success("Konfigurasi deadline berhasil dimuat.")
+        #st.success("Konfigurasi deadline berhasil dimuat.")
         deadlines_dict = pd.Series(
             df_deadline['Tanggal Deadline'].values,
             index=df_deadline['Jenis Laporan']
